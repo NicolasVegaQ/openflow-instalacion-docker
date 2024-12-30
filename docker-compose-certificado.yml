@@ -1,0 +1,167 @@
+services:
+  traefik:
+    image: traefik:v2.10.6
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.address=:80"
+
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=tucorreo@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      # middleware redirect
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      # global redirect to https
+      - "traefik.http.routers.redirs.rule=hostregexp(`{host:.+}`)"
+      - "traefik.http.routers.redirs.entrypoints=web"
+      - "traefik.http.routers.redirs.middlewares=redirect-to-https"
+      # **Timeout settings for gRPC**
+      # - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=90000s"
+      # - "--entrypoints.websecure.transport.respondingTimeouts.writeTimeout=90000s"
+      # - "--entrypoints.websecure.transport.lifeCycle.requestAcceptGraceTimeout=90000s"
+      # ** logs**
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--accesslog.format=json"
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: always
+    networks:
+      - traefik
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      - "//var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./traefik_logs:/var/log/traefik"
+  mongodb:
+    image: mongo
+    restart: always
+    networks:
+      - traefik
+    command: "--bind_ip_all --replSet rs0"
+    environment:
+      - MONGO_REPLICA_SET_NAME=rs0
+    volumes:
+      - mongodb_data:/data/db
+  mongosetup:
+    image: mongo
+    depends_on:
+      - mongodb
+    restart: "no"
+    networks:
+      - traefik
+    command: >
+      mongosh --host mongodb:27017 --eval 
+      '
+      db = (new Mongo("mongodb:27017")).getDB("openflow");
+      config = {
+      "_id" : "rs0",
+      "members" : [
+        {
+          "_id" : 0,
+          "host" : "mongodb:27017"
+        }
+      ]
+      };
+      rs.initiate(config);
+      '
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rabbitmq.rule=Host(`mq.tudominio.com.tipo.A.CNAME`)"
+      - "traefik.http.routers.rabbitmq.entrypoints=websecure"
+      - "traefik.http.routers.rabbitmq.tls.certresolver=myresolver"
+      - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
+    ports:
+      - "5672:5672"    # Puerto para AMQP
+      - "15672:15672"  # Puerto para la interfaz de administración
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=pacandev2024
+      - RABBITMQ_DEFAULT_VHOST=myvhost
+    networks:
+      - traefik
+  nodered:
+    image: nodered/node-red:latest
+    container_name: nodered
+    restart: always
+    networks:
+      - traefik
+    volumes:
+      - nodered_data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nodered.rule=Host(`nodered.tudominio.com.tipo.A.CNAME`)"
+      - "traefik.http.routers.nodered.entrypoints=websecure"
+      - "traefik.http.routers.nodered.tls.certresolver=myresolver"
+      - "traefik.http.services.nodered.loadbalancer.server.port=1880"
+  api:
+    labels:
+      - traefik.enable=true
+      - traefik.frontend.passHostHeader=true
+      - traefik.http.routers.http-router.entrypoints=websecure
+      - traefik.http.routers.http-router.tls.certresolver=myresolver
+      - traefik.http.routers.http-router.rule=Host(`tudominio.com.tipo.A.CNAME`)
+      - traefik.http.routers.http-router.service=http-service
+      - traefik.http.services.http-service.loadbalancer.server.port=3000
+      - traefik.http.routers.grpc-router.rule=Host(`grpc.tudominio.com.tipo.A.CNAME`)
+      - traefik.http.routers.grpc-router.service=grpc-service
+      - traefik.http.routers.grpc-router.entrypoints=websecure
+      - traefik.http.routers.grpc-router.tls.certresolver=myresolver
+      - traefik.http.services.grpc-service.loadbalancer.server.port=50051
+      - traefik.http.services.grpc-service.loadbalancer.server.scheme=h2c
+    image: openiap/openflow
+    deploy:
+      replicas: 1
+    pull_policy: always
+    restart: always
+    networks:
+      - traefik
+    ports:
+      - "5858:5858"
+    volumes:
+      - "//var/run/docker.sock:/var/run/docker.sock"
+    depends_on:
+      - rabbitmq
+      - mongodb
+    environment:
+      - auto_create_users=true
+      - auto_create_domains=
+      - protocol=https
+      - domain=tudominio.com.tipo.A.CNAME
+      - websocket_package_size=25000 # (si esperas paquetes más grandes)
+      - websocket_max_package_count=1048576 # (si esperas alta concurrencia)
+      - port=3000
+      - log_with_colors=true
+      # uncomment below 2 lines, if you have set replicas above 1
+      # - enable_openflow_amqp=true
+      # - amqp_prefetch=25
+      # uncomment to add agents to the same docker compose project ( will breake running docker compose up -d if any agents running )
+      # - agent_docker_use_project=true  
+
+      - agent_oidc_userinfo_endpoint=http://api:3000/oidc/me
+      - agent_oidc_issuer=https://tudominio.com.tipo.A.CNAME/oidc
+      - agent_oidc_authorization_endpoint=https://tudominio.com.tipo.A.CNAME/oidc/auth
+      - agent_oidc_token_endpoint=http://api:3000/oidc/token
+      - agent_docker_entrypoints=web,websecure
+      - agent_docker_certresolver=myresolver
+
+      - amqp_url=amqp://admin:pacandev2024@rabbitmq:5672/myvhost
+      - mongodb_url=mongodb://mongodb:27017/?replicaSet=rs0
+      - mongodb_db=openflow
+
+      - aes_secret=O1itlrmA47WzxPj95YHD2sZs7IchYaQI25mQ
+volumes:
+  mongodb_data:
+    driver: local
+  nodered_data:
+    driver: local
+  traefik_logs:
+    driver: local
+networks:
+  traefik:
+    name: traefik
