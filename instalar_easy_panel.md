@@ -242,4 +242,13 @@ Si deseas agregar:
 - Workers distribuidos  
 - Cluster HA  
 
-Solicita el documento “**OpenFlow Infraestructura Avanzada**”.
+---
+
+### 🛠️ Elaborado por  
+**Nicolás Vega Quevedo**  
+Desarrollador RPA • DevOps Junior  
+
+📩 Contacto y soporte: **micorreo@gmail.com**
+
+---
+
