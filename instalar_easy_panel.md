@@ -248,7 +248,7 @@ Si deseas agregar:
 **Nicolás Vega Quevedo**  
 Desarrollador RPA • DevOps Junior  
 
-📩 Contacto y soporte: **micorreo@gmail.com**
+📩 Contacto y soporte: **nicolasvegaquevedo12@gmail.com**
 
 ---
 
