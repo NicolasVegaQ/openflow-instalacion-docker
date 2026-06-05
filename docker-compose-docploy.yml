@@ -1,0 +1,69 @@
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    command: "--bind_ip_all --replSet rs0"
+    volumes:
+      - mongodb_data:/data/db
+
+  mongosetup:
+    image: mongo:7
+    depends_on:
+      - mongodb
+    restart: "no"
+    command: >
+      mongosh --host mongodb:27017 --eval '
+      rs.initiate({
+        _id: "rs0",
+        members: [
+          {
+            _id: 0,
+            host: "mongodb:27017"
+          }
+        ]
+      })
+      '
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin123
+      - RABBITMQ_DEFAULT_VHOST=myvhost
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  openflow:
+    image: openiap/openflow:latest
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - rabbitmq
+    ports:
+      - "3001:3000"
+      - "5858:5858"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - protocol=https
+      - port=3000
+
+      # CAMBIAR POR TU DOMINIO
+      - domain=openflow.midominio.com
+
+      - auto_create_users=false
+      - auto_create_domains=true
+      - log_with_colors=true
+
+      - mongodb_url=mongodb://mongodb:27017/?replicaSet=rs0
+      - mongodb_db=openflow
+
+      - amqp_url=amqp://admin:admin123@rabbitmq:5672/myvhost
+
+      # CAMBIAR POR UNA CLAVE SEGURA
+      - aes_secret=REEMPLAZAR_POR_UNA_CLAVE_SEGURA_DE_32_O_MAS_CARACTERES
+
+volumes:
+  mongodb_data:
+  rabbitmq_data:
